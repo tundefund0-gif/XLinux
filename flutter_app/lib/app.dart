@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'providers/setup_provider.dart';
 import 'screens/terminal_screen.dart';
 
 class AppColors {
@@ -8,13 +7,8 @@ class AppColors {
   static const Color accent = Color(0xFF22C55E);
   static const Color darkBg = Color(0xFF0A0A0A);
   static const Color darkSurface = Color(0xFF121212);
-  static const Color darkSurfaceAlt = Color(0xFF1A1A1A);
   static const Color darkBorder = Color(0xFF2A2A2A);
-  static const Color lightBg = Color(0xFFFFFFFF);
-  static const Color lightSurface = Color(0xFFF9F9F9);
-  static const Color lightBorder = Color(0xFFE5E5E5);
   static const Color statusGreen = Color(0xFF22C55E);
-  static const Color statusAmber = Color(0xFFF59E0B);
   static const Color statusRed = Color(0xFFEF4444);
   static const Color mutedText = Color(0xFF6B7280);
 }
