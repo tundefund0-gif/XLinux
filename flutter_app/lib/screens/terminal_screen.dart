@@ -1,12 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 import 'package:flutter_pty/flutter_pty.dart';
 import '../services/native_bridge.dart';
 import '../services/terminal_service.dart';
-import '../widgets/terminal_toolbar.dart';
 import 'ssh_screen.dart';
 import 'settings_screen.dart';
 
@@ -17,23 +15,15 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
-  late final Terminal _terminal;
-  late final TerminalController _controller;
-  Pty? _pty;
-  bool _loading = true;
-  String? _error;
+  final terminal = Terminal();
+  Pty? pty;
+  bool loading = true;
+  String? error;
   int _selectedIndex = 0;
-  final _ctrlNotifier = ValueNotifier<bool>(false);
-  final _altNotifier = ValueNotifier<bool>(false);
 
   @override
   void initState() {
     super.initState();
-    _terminal = Terminal(
-      onTitleChanged: (title) => setState(() {}),
-      maxLines: 10000,
-    );
-    _controller = TerminalController();
     _initTerminal();
   }
 
@@ -42,51 +32,35 @@ class _TerminalScreenState extends State<TerminalScreen> {
       await NativeBridge.setupDirs();
       await NativeBridge.writeResolv();
       final config = await TerminalService.getProotShellConfig();
-      final columns = _terminal.width;
-      final rows = _terminal.height;
-      final args = TerminalService.buildProotArgs(config, columns: columns, rows: rows);
+      final args = TerminalService.buildProotArgs(config);
       final env = TerminalService.buildHostEnv(config);
-      final workDir = config['homeDir'] ?? '/';
 
-      _pty = Pty.start(
+      pty = Pty.start(
         args.isNotEmpty ? args[0] : '/system/bin/sh',
         arguments: args.length > 1 ? args.sublist(1) : [],
-        columns: columns,
-        rows: rows,
+        columns: terminal.viewWidth,
+        rows: terminal.viewHeight,
         environment: env,
-        workingDirectory: workDir,
+        workingDirectory: config['homeDir'] ?? '/',
       );
 
-      _pty!.output.listen((data) {
-        final text = utf8.decode(data, allowMalformed: true);
-        _terminal.write(text);
+      pty!.output.listen((data) {
+        terminal.write(utf8.decode(data, allowMalformed: true));
       });
 
-      _pty!.exitCode.then((code) {
-        if (mounted) {
-          setState(() { _error = 'Shell exited with code $code'; _loading = false; });
-        }
+      pty!.exitCode.then((code) {
+        if (mounted) setState(() { error = 'Shell exited ($code)'; loading = false; });
       });
 
-      _terminal.onResize = (w, h, pw, ph) {
-        _pty?.resize(h, w, pw, ph);
-      };
-
-      _terminal.onInput = (data) {
-        _pty?.write(utf8.encode(data));
-      };
-
-      if (mounted) setState(() { _loading = false; });
+      if (mounted) setState(() { loading = false; });
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) setState(() { error = e.toString(); loading = false; });
     }
   }
 
   @override
   void dispose() {
-    _pty?.kill();
-    _terminal.dispose();
-    _controller.dispose();
+    pty?.kill();
     super.dispose();
   }
 
@@ -101,20 +75,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
       appBar: AppBar(
         title: Text(_selectedIndex == 0 ? 'XLinux' : (_selectedIndex == 1 ? 'SSH' : 'Settings')),
         actions: _selectedIndex == 0 ? [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () { _terminal.clear(); _initTerminal(); },
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy),
-            onPressed: () {
-              final text = _terminal.buffer.getText();
-              Clipboard.setData(ClipboardData(text: text));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Copied to clipboard')),
-              );
-            },
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: () {
+            setState(() { error = null; loading = true; });
+            _initTerminal();
+          }),
+          IconButton(icon: const Icon(Icons.copy), onPressed: () {
+            final text = terminal.buffer.toString();
+            Clipboard.setData(ClipboardData(text: text));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+          }),
         ] : null,
       ),
       body: screens[_selectedIndex],
@@ -131,7 +100,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Widget _buildTerminalView() {
-    if (_loading) {
+    if (loading) {
       return const Center(child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -141,34 +110,66 @@ class _TerminalScreenState extends State<TerminalScreen> {
         ],
       ));
     }
-    if (_error != null) {
+    if (error != null) {
       return Center(child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.error_outline, size: 48, color: Colors.red),
           const SizedBox(height: 16),
-          Text(_error!, textAlign: TextAlign.center),
+          Text(error!, textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          ElevatedButton(onPressed: () { setState(() { _error = null; _loading = true; }); _initTerminal(); },
-            child: const Text('Retry')),
+          ElevatedButton(onPressed: () {
+            setState(() { error = null; loading = true; });
+            _initTerminal();
+          }, child: const Text('Retry')),
         ],
       ));
     }
     return Column(children: [
-      Expanded(child: TerminalView(
-        terminal: _terminal,
-        controller: _controller,
-        textStyle: const TextStyle(
-          fontFamily: 'DejaVu Sans Mono',
-          fontSize: 14,
-          color: Color(0xFFCCCCCC),
-        ),
-      )),
-      TerminalToolbar(
-        terminal: _terminal,
-        ctrlNotifier: _ctrlNotifier,
-        altNotifier: _altNotifier,
+      Expanded(child: TerminalView(terminal: terminal)),
+      Container(
+        height: 44,
+        color: const Color(0xFF1A1A1A),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(children: [
+          _modKey('Ctrl'), const SizedBox(width: 4),
+          _modKey('Alt'), const SizedBox(width: 8),
+          _keyBtn('Tab'), _keyBtn('Esc'), _keyBtn('/'),
+          _keyBtn('↑'), _keyBtn('↓'),
+        ]),
       ),
     ]);
   }
+
+  Widget _modKey(String label) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+  );
+
+  Widget _keyBtn(String key) => GestureDetector(
+    onTap: () {
+      String char;
+      switch (key) {
+        case 'Tab': char = '\t'; break;
+        case 'Esc': char = '\x1b'; break;
+        case '↑': char = '\x1b[A'; break;
+        case '↓': char = '\x1b[B'; break;
+        default: char = key;
+      }
+      pty?.write(utf8.encode(char));
+    },
+    child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A2A),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(key, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+    ),
+  );
 }
