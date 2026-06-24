@@ -126,7 +126,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       ));
     }
     return Column(children: [
-      Expanded(child: TerminalView(terminal: terminal)),
+      Expanded(child: TerminalView(terminal)),
       Container(
         height: 44,
         color: const Color(0xFF1A1A1A),
